@@ -1,0 +1,5 @@
+sqlboiler.toml
+.env
+.vscode
+go-ata-auth
+test_db.db
