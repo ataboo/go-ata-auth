@@ -60,11 +60,6 @@ func initServer() error {
 }
 
 func handleCreateUser(g *gin.Context) {
-	if err := g.Request.ParseForm(); err != nil {
-		g.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
-
 	data := CreateUserData{}
 	if err := g.BindJSON(&data); err != nil {
 		g.AbortWithStatus(http.StatusBadRequest)
@@ -80,11 +75,10 @@ func handleCreateUser(g *gin.Context) {
 
 	_, err = models.Users(qm.Where("email = ?", data.Email)).One(ctx, tx)
 	if err == nil {
-		g.JSON(http.StatusConflict, "this email has already been registered")
-		return
+		validation.Responses["email"] = "this email has already been registered"
 	}
 
-	validation.Responses["display_name"] = validateStringField(data.DisplayName, 3, StringLengthMax)
+	validateDisplayName(validation, data.DisplayName)
 	validatePassword(validation, data.Password, data.ConfirmPassword)
 
 	if !validation.Valid() {
@@ -117,15 +111,10 @@ func handleCreateUser(g *gin.Context) {
 		return
 	}
 
-	g.JSON(http.StatusAccepted, "success")
+	g.JSON(http.StatusOK, "success")
 }
 
 func handleRefresh(g *gin.Context) {
-	if err := g.Request.ParseForm(); err != nil {
-		g.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
-
 	data := RefreshData{}
 	if err := g.BindJSON(&data); err != nil {
 		g.AbortWithStatus(http.StatusBadRequest)
@@ -135,14 +124,23 @@ func handleRefresh(g *gin.Context) {
 	ctx := context.Background()
 	tx, err := dbcontext.NewDbTx(ctx)
 
-	oldSession, err := models.Sessions(qm.With("user"), qm.Where("refresh_token = ? AND ended_at IS NOT NULL", data.RefreshToken), qm.With("user")).One(ctx, tx)
+	oldSession, err := models.Sessions(qm.Where("refresh_token = ? AND ended_at IS NULL", data.RefreshToken), qm.Load("User")).One(ctx, tx)
 	if err != nil {
 		g.AbortWithStatus(http.StatusNotFound)
 		return
 	}
 
 	oldSession.EndedAt = null.TimeFrom(time.Now())
-	oldSession.Update(ctx, tx, boil.Infer())
+	if _, err := oldSession.Update(ctx, tx, boil.Infer()); err != nil {
+		g.AbortWithError(http.StatusInternalServerError, errors.New("failed to end session on refresh"))
+		return
+	}
+
+	if !oldSession.R.User.Active {
+		tx.Commit()
+		g.AbortWithStatus(http.StatusForbidden)
+		return
+	}
 
 	newSession := startNewSession(g, oldSession.R.User, ctx, tx)
 	if newSession == nil {
@@ -155,15 +153,17 @@ func handleRefresh(g *gin.Context) {
 		return
 	}
 
-	g.JSON(http.StatusOK, "success")
+	response := SessionResponseData{
+		AccessToken:  newSession.AccessToken,
+		RefreshToken: newSession.RefreshToken,
+		Email:        newSession.R.User.Email,
+		ExpiresAt:    newSession.ExpiresAt.Unix(),
+	}
+
+	g.JSON(http.StatusOK, response)
 }
 
 func handleLogout(g *gin.Context) {
-	if err := g.Request.ParseForm(); err != nil {
-		g.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
-
 	data := LogoutData{}
 	if err := g.BindJSON(&data); err != nil {
 		g.AbortWithStatus(http.StatusBadRequest)
@@ -194,11 +194,6 @@ func handleLogout(g *gin.Context) {
 }
 
 func handleLogin(g *gin.Context) {
-	if err := g.Request.ParseForm(); err != nil {
-		g.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
-
 	data := LoginData{}
 	if err := g.BindJSON(&data); err != nil {
 		g.AbortWithStatus(http.StatusBadRequest)

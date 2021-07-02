@@ -2,10 +2,19 @@ package server
 
 import "net/mail"
 
-const StringLengthMax = 48
+const StringLengthMin = 5
+const StringLengthMax = 24
+const PasswordLengthMin = 5
+const PasswordLengthMax = 18
 
 type ValidationBag struct {
 	Responses map[string]ValidationReponse
+}
+
+func (r *ValidationBag) Clear() {
+	for k := range r.Responses {
+		delete(r.Responses, k)
+	}
 }
 
 func (r *ValidationBag) Valid() bool {
@@ -58,13 +67,19 @@ func validateStringField(str string, min int, max int) ValidationReponse {
 }
 
 func validatePassword(bag *ValidationBag, password string, confirm string) {
-	pwResponse := validateStringField(password, 5, 18)
+	pwResponse := validateStringField(password, PasswordLengthMin, PasswordLengthMax)
 	if !pwResponse.Valid() {
 		bag.Responses["password"] = pwResponse
-		return
 	}
 
 	if password != confirm {
 		bag.Responses["confirm_password"] = "passwords must match"
+	}
+}
+
+func validateDisplayName(bag *ValidationBag, displayName string) {
+	lengthResponse := validateStringField(displayName, StringLengthMin, StringLengthMax)
+	if !lengthResponse.Valid() {
+		bag.Responses["display_name"] = lengthResponse
 	}
 }

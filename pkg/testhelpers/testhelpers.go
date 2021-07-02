@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/ataboo/go-ata-auth/pkg/common"
@@ -15,6 +16,8 @@ import (
 	"github.com/ataboo/go-ata-auth/pkg/models"
 	"github.com/gin-gonic/gin"
 )
+
+var TestDBLock sync.Mutex
 
 func NewGinTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	recorder := httptest.NewRecorder()
